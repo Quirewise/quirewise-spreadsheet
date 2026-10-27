@@ -2,6 +2,7 @@
 #define QUIREWISE_FORMAT_REGISTRY_INTERNAL_H
 
 #include "quirewise/convert.h"
+#include "quirewise/document.h"
 #include "data_document.h"
 #include "architecture_metadata.h"
 #include "audio_document.h"
