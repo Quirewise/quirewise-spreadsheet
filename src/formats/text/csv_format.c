@@ -518,11 +518,13 @@ static int csv_convert_to_pdf(const void *input,
     rc = csv_process_grid(input, size, &html, &delimiter, &rows, &columns,
                           NULL, 1);
     if (rc == QW_STATUS_OK) {
-        rc = qw_mupdf_convert_html(html.data, html.size,
-                                   out_pdf, out_size, report);
-        if (rc == QW_STATUS_OK && report) {
+        /* The CSV grid is validated and converted to HTML, but emitting PDF is
+         * the job of the internal Quirewise layout/PDF renderer, which this
+         * package does not provide yet. */
+        rc = QW_STATUS_ERR_UNSUPPORTED;
+        if (report) {
             (void)snprintf(report->note, sizeof(report->note),
-                "%s table rendered to PDF (%zu rows, up to %zu columns)",
+                "%s table parsed (%zu rows, up to %zu columns); PDF rendering requires the internal Quirewise layout/PDF renderer",
                 delimiter == '\t' ? "TSV" : "CSV", rows, columns);
         }
     }

@@ -1,4 +1,4 @@
-#include "../../core/format_registry.h"
+﻿#include "../../core/format_registry.h"
 #include "../../core/html_output.h"
 #include "../../core/text_buffer.h"
 #include "../archive/ole_compound.h"
@@ -94,13 +94,13 @@ static uint64_t xls_u64(const uint8_t *p)
 
 static int xls_html_literal(XlsReader *reader, const char *text)
 {
-    return reader && (!reader->capture_html || qw_html_output_literal(
+    return reader && (!reader->capture_html || qw_spreadsheet_html_output_literal(
         &reader->html, text, XLS_MAX_HTML_BYTES, &reader->output_limit_hit));
 }
 
 static int xls_html_escape(XlsReader *reader, const char *text)
 {
-    return reader && (!reader->capture_html || qw_html_output_escape(
+    return reader && (!reader->capture_html || qw_spreadsheet_html_output_escape(
         &reader->html, text, XLS_MAX_HTML_BYTES, &reader->output_limit_hit));
 }
 

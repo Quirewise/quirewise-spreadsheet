@@ -1,4 +1,4 @@
-#include "format_registry.h"
+﻿#include "format_registry.h"
 #include "../../core/xml_parser.h"
 #include "../archive/zip_native.h"
 
@@ -104,7 +104,7 @@ static void ods_set_error(QwConvertReport *report, const char *message)
 static int ods_html_append(OdsReader *reader, const char *text, size_t size)
 {
     return reader && (!reader->capture_html ||
-        qw_html_output_append(&reader->html, text, size,
+        qw_spreadsheet_html_output_append(&reader->html, text, size,
                               ODS_MAX_HTML_BYTES, NULL));
 }
 
@@ -116,7 +116,7 @@ static int ods_html_literal(OdsReader *reader, const char *text)
 static int ods_html_escape(OdsReader *reader, const char *text)
 {
     return reader && (!reader->capture_html ||
-        qw_html_output_escape(&reader->html, text, ODS_MAX_HTML_BYTES, NULL));
+        qw_spreadsheet_html_output_escape(&reader->html, text, ODS_MAX_HTML_BYTES, NULL));
 }
 
 static const char *ods_local_name(const char *qualified_name)
@@ -534,15 +534,9 @@ static int ods_build_layout_html(const void *data, size_t size,
         memcpy(content_data, data, size);
         content_size = size;
     } else {
-#ifdef QUIREWISE_STANDALONE_SPREADSHEET
         if (!qw_zip_reader_init_mem_with_profile(
                 &zip, data, size, 0u,
                 QW_FORMAT_INPUT_RESOURCE_PROFILE_DOCUMENT_ARCHIVE)) {
-#else
-        if (!qw_zip_reader_init_mem_with_profile(
-                &zip, data, size, 0u,
-                qw_format_resource_profile_get(input_format))) {
-#endif
             ods_set_error(report, "OpenDocument spreadsheet package could not be opened as ZIP");
             return QW_STATUS_ERR_FORMAT;
         }

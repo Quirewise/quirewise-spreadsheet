@@ -1,4 +1,4 @@
-#include "format_registry.h"
+﻿#include "format_registry.h"
 #include "../../core/html_output.h"
 #include "../../core/xml_parser.h"
 #include "../archive/zip_native.h"
@@ -68,7 +68,7 @@ static void xlsx_set_error(QwConvertReport *report, int code,
 
 static int xlsx_html_append(XlsxReader *reader, const char *text, size_t size)
 {
-    return reader && (!reader->capture_html || qw_html_output_append(
+    return reader && (!reader->capture_html || qw_spreadsheet_html_output_append(
         &reader->html, text, size, XLSX_MAX_HTML_BYTES,
         &reader->output_limit_hit));
 }
@@ -80,7 +80,7 @@ static int xlsx_html_literal(XlsxReader *reader, const char *text)
 
 static int xlsx_html_escape(XlsxReader *reader, const char *text)
 {
-    return reader && (!reader->capture_html || qw_html_output_escape(
+    return reader && (!reader->capture_html || qw_spreadsheet_html_output_escape(
         &reader->html, text, XLSX_MAX_HTML_BYTES,
         &reader->output_limit_hit));
 }
@@ -717,15 +717,9 @@ static int xlsx_build_document(const void *data, size_t size,
     if (!data || !size) return QW_STATUS_ERR_INVALID_ARGUMENT;
     memset(&zip, 0, sizeof(zip));
     memset(&reader, 0, sizeof(reader));
-#ifdef QUIREWISE_STANDALONE_SPREADSHEET
     if (!qw_zip_reader_init_mem_with_profile(
             &zip, data, size, 0u,
             QW_FORMAT_INPUT_RESOURCE_PROFILE_DOCUMENT_ARCHIVE)) {
-#else
-    if (!qw_zip_reader_init_mem_with_profile(
-            &zip, data, size, 0u,
-            qw_format_resource_profile_get(input_format))) {
-#endif
         xlsx_set_error(report, QW_STATUS_ERR_FORMAT,
             "OOXML spreadsheet package could not be opened as ZIP");
         qw_zip_reader_end(&zip);
