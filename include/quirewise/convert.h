@@ -113,23 +113,8 @@ typedef enum QwFormatId {
     /* Output-only aliases sharing the existing MP4 and WebM audio containers. */
     QW_FORMAT_M4B,
     QW_FORMAT_WEBA,
-    /* AVIF is a single-image input and output format. */
-    QW_FORMAT_AVIF,
-    /* JPEG XL single-image input and output. */
-    QW_FORMAT_JXL,
-    /* PostScript and EPS use the statically linked Ghostscript adapter. */
-    QW_FORMAT_PS,
-    QW_FORMAT_EPS,
-    /* Legacy PostScript-based Illustrator documents use Ghostscript to PDF. */
-    QW_FORMAT_AI,
-    /* HEIC/HEIF single-image input and lossy HEVC output. */
-    QW_FORMAT_HEIC,
-    /* Camera RAW inputs decoded through the LibRaw C API. */
-    QW_FORMAT_RAW,
     /* GIMP XCF layered images, flattened through the native page decoder. */
     QW_FORMAT_XCF,
-    /* Kodak Photo CD still images decoded through FFmpeg libavcodec. */
-    QW_FORMAT_PCD,
     /* WordprocessingML variants share the native DOCX layout reader. */
     QW_FORMAT_DOCM,
     QW_FORMAT_DOTX,
