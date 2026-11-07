@@ -3,7 +3,6 @@
 #include "../spreadsheet/spreadsheet_parser_internal.h"
 
 #ifndef QUIREWISE_STANDALONE_SPREADSHEET
-#include "../../backends/mupdf_backend.h"
 #endif
 
 #include <stdint.h>
