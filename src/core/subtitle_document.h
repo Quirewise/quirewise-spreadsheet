@@ -1,7 +1,7 @@
 #ifndef QUIREWISE_SUBTITLE_DOCUMENT_INTERNAL_H
 #define QUIREWISE_SUBTITLE_DOCUMENT_INTERNAL_H
 
-#include "quirewise/convert.h"
+#include "quirewise/format.h"
 
 enum {
     QW_SUBTITLE_MAX_CUES = 1000000u,

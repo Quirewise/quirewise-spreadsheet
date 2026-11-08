@@ -1,7 +1,7 @@
 #ifndef QUIREWISE_AUDIO_DOCUMENT_INTERNAL_H
 #define QUIREWISE_AUDIO_DOCUMENT_INTERNAL_H
 
-#include "quirewise/convert.h"
+#include "quirewise/format.h"
 
 typedef struct QwAudioTag {
     const char *name;

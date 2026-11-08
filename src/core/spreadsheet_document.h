@@ -1,7 +1,7 @@
 #ifndef QUIREWISE_SPREADSHEET_DOCUMENT_INTERNAL_H
 #define QUIREWISE_SPREADSHEET_DOCUMENT_INTERNAL_H
 
-#include "quirewise/convert.h"
+#include "quirewise/format.h"
 
 typedef enum QwSpreadsheetValueKind {
     QW_SPREADSHEET_VALUE_EMPTY = 0,

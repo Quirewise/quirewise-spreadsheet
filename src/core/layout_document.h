@@ -1,7 +1,7 @@
 #ifndef QUIREWISE_LAYOUT_DOCUMENT_INTERNAL_H
 #define QUIREWISE_LAYOUT_DOCUMENT_INTERNAL_H
 
-#include "quirewise/convert.h"
+#include "quirewise/format.h"
 
 typedef struct QwLayoutRun {
     const uint8_t *utf8_text;
