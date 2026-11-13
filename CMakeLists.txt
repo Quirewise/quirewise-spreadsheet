@@ -51,5 +51,10 @@ if(BUILD_TESTING)
     target_link_libraries(quirewise_spreadsheet_fuzz_smoke PRIVATE Quirewise::Spreadsheet)
     add_test(NAME quirewise_spreadsheet_fuzz_smoke
         COMMAND quirewise_spreadsheet_fuzz_smoke)
+
+    add_executable(quirewise_spreadsheet_csv_parse tests/csv_parse_test.c)
+    target_compile_features(quirewise_spreadsheet_csv_parse PRIVATE c_std_11)
+    target_link_libraries(quirewise_spreadsheet_csv_parse PRIVATE Quirewise::Spreadsheet)
+    add_test(NAME quirewise_spreadsheet_csv COMMAND quirewise_spreadsheet_csv_parse)
 endif()
 target_link_libraries(quirewise_spreadsheet PUBLIC Quirewise::Runtime)
