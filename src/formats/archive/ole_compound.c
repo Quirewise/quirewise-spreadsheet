@@ -43,6 +43,20 @@ static uint64_t ole_u64(const uint8_t *p)
     return (uint64_t)ole_u32(p) | ((uint64_t)ole_u32(p + 4u) << 32);
 }
 
+/*
+ * CFB version 3 (512-byte sectors) stores the stream size in a 64-bit field
+ * but only the low 32 bits are meaningful. Some generators leave uninitialised
+ * bytes in the high half (MonteCarlo.xls does), so mask them instead of
+ * rejecting an otherwise readable workbook stream.
+ */
+static uint64_t ole_directory_stream_size(const OleCompound *compound,
+                                          const uint8_t *entry)
+{
+    if (compound && compound->sector_size == 512u)
+        return (uint64_t)ole_u32(entry + 120u);
+    return ole_u64(entry + 120u);
+}
+
 int qw_ole_compound_has_signature(const uint8_t *data, size_t size)
 {
     static const uint8_t signature[8] = {
@@ -467,12 +481,12 @@ int qw_ole_compound_read_stream(const uint8_t *data,
         uint8_t object_type = entry[66u];
         if (object_type == 5u && !found_root) {
             root_start = ole_u32(entry + 116u);
-            root_size = ole_u64(entry + 120u);
+            root_size = ole_directory_stream_size(&compound, entry);
             found_root = 1;
         } else if (object_type == 2u &&
                    ole_entry_name_matches(entry, stream_name)) {
             target_start = ole_u32(entry + 116u);
-            target_size = ole_u64(entry + 120u);
+            target_size = ole_directory_stream_size(&compound, entry);
             found_target = 1;
             break;
         }

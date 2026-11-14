@@ -65,6 +65,7 @@ typedef struct XlsReader {
     size_t shared_string_bytes;
     size_t sheet_count;
     size_t cell_count;
+    size_t out_of_order_cells;
     size_t visited_records;
     int row_open;
     uint32_t current_row;
@@ -528,16 +529,24 @@ static int xls_finish_row(XlsReader *reader)
 }
 
 static int xls_append_cell(XlsReader *reader, uint32_t row, uint32_t column,
-                           const char *value)
+                           const char *value, int *out_appended)
 {
     char row_label[16];
     uint32_t blank_column;
+    if (out_appended) *out_appended = 0;
     if (!reader || row >= XLS_MAX_ROWS ||
         column >= XLS_MAX_COLUMNS || ++reader->cell_count > XLS_MAX_CELLS)
         return 0;
     if (!value) value = "";
     if (!reader->row_open || row != reader->current_row) {
-        if (reader->has_previous_row && row <= reader->previous_row) return 0;
+        /* Real BIFF8 sheets are not guaranteed to be row-major: chart data
+         * caches and some generators emit a lower row after a higher one.
+         * Skip the out-of-order cell instead of rejecting the whole workbook;
+         * keeping row-major order is what the shared document model requires. */
+        if (reader->has_previous_row && row < reader->previous_row) {
+            ++reader->out_of_order_cells;
+            return 1;
+        }
         if (!xls_finish_row(reader)) return 0;
         (void)snprintf(row_label, sizeof(row_label), "%u", row + 1u);
         if (reader->capture_html &&
@@ -550,7 +559,11 @@ static int xls_append_cell(XlsReader *reader, uint32_t row, uint32_t column,
         reader->next_column = 0u;
         reader->row_open = 1;
     }
-    if (column < reader->next_column) return 0;
+    if (column < reader->next_column) {
+        /* Duplicate or backwards column in the same row. */
+        ++reader->out_of_order_cells;
+        return 1;
+    }
     if (reader->capture_html) {
         for (blank_column = reader->next_column; blank_column < column;
              ++blank_column) {
@@ -561,6 +574,7 @@ static int xls_append_cell(XlsReader *reader, uint32_t row, uint32_t column,
             !xls_html_literal(reader, "</td>")) return 0;
     }
     reader->next_column = column + 1u;
+    if (out_appended) *out_appended = 1;
     return 1;
 }
 
@@ -569,8 +583,11 @@ static int xls_append_value(XlsReader *reader, uint32_t row, uint32_t column,
                             QwSpreadsheetValueKind value_kind,
                             const uint8_t *value, size_t value_size)
 {
-    if (!reader || !xls_append_cell(reader, row, column, display_value))
+    int appended = 0;
+    if (!reader || !xls_append_cell(reader, row, column, display_value,
+                                    &appended))
         return 0;
+    if (!appended) return 1;
     if (!reader->spreadsheet) return 1;
     if (!qw_spreadsheet_document_add_cell(reader->spreadsheet,
             reader->spreadsheet_sheet_index, row, column, value_kind,
@@ -677,15 +694,16 @@ static int xls_parse_sheet_record(XlsReader *reader, uint16_t type,
         uint16_t last_column;
         size_t pair_count;
         size_t i;
-        if (size < 12u || (size - 6u - 2u) % 6u != 0u) return 0;
+        /* row (2) + first column (2) + N*(XF 2 + RK 4) + last column (2). */
+        if (size < 12u || (size - 6u) % 6u != 0u) return 0;
         row = xls_u16(payload);
         first_column = xls_u16(payload + 2u);
         last_column = xls_u16(payload + size - 2u);
-        pair_count = (size - 8u) / 6u;
+        pair_count = (size - 6u) / 6u;
         if (!pair_count || first_column >= XLS_MAX_COLUMNS ||
             last_column != first_column + pair_count - 1u) return 0;
         for (i = 0u; i < pair_count; ++i) {
-            uint32_t rk = xls_u32(payload + 8u + i * 6u);
+            uint32_t rk = xls_u32(payload + 6u + i * 6u);
             if (!xls_append_numeric(reader, row,
                                     (uint32_t)first_column + (uint32_t)i,
                                     xls_decode_rk(rk))) return 0;
