@@ -1,6 +1,8 @@
 #ifndef QUIREWISE_SPREADSHEET_H
 #define QUIREWISE_SPREADSHEET_H
 
+#include "quirewise/format.h"
+
 #include <stddef.h>
 #include <stdint.h>
 
@@ -70,6 +72,22 @@ size_t qw_spreadsheet_cell_count(const QwSpreadsheetSheet *sheet);
 QwSpreadsheetStatus qw_spreadsheet_cell_at(const QwSpreadsheetSheet *sheet,
                                            size_t index,
                                            QwSpreadsheetCellView *out_cell);
+
+/*
+ * Write the first worksheet as CSV (QW_FORMAT_CSV) or TSV (QW_FORMAT_TSV).
+ * Fields are quoted when they contain the delimiter, a quote or a line break.
+ * Text targets have no sheet concept, so further sheets are skipped and named
+ * in the report note. Other output formats return
+ * QW_SPREADSHEET_ERR_UNSUPPORTED. The result is malloc-owned and must be
+ * released with qw_spreadsheet_buffer_free(); it is not NUL-terminated.
+ */
+QwSpreadsheetStatus qw_spreadsheet_write_document(
+    const QwSpreadsheetDocument *document, QwOutputFormat output_format,
+    const QwConvertOptions *options, uint8_t **out_data, size_t *out_size,
+    QwConvertReport *report);
+
+/* Release a buffer returned by qw_spreadsheet_write_document(). */
+void qw_spreadsheet_buffer_free(void *buffer);
 
 #ifdef __cplusplus
 }

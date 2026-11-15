@@ -29,13 +29,17 @@ application or any other Quirewise package.
 The format is selected by the caller through `QwSpreadsheetFormat`; there is no
 content probing function.
 
-**Deliberate boundaries.** This is a reader: there is no XLSX, XLS, ODS or CSV
-writer. Formulas are never evaluated - only the cached result stored in the
-file is returned. Styles, number formats, merged regions, charts, images,
-macros and template behavior are not modeled. Encrypted XLS workbooks are
-unsupported, and an XLSX cell that uses a shared or array formula makes the
-typed parse fail with `QW_SPREADSHEET_ERR_UNSUPPORTED`. ODS time-typed cells are
-outside the supported typed subset.
+**Deliberate boundaries.** This is primarily a reader: XLSX, XLS and ODS are
+never written. CSV and TSV output exists through
+`qw_spreadsheet_write_document`, but it writes the **first worksheet only** -
+text targets have no sheet concept - and quotes fields containing the
+delimiter, a quote or a line break. Formulas are never evaluated - only the
+cached result stored in the file is returned. Styles, number formats, merged
+regions, charts, images, macros and template behavior are not modeled.
+Encrypted XLS workbooks are unsupported, and an XLSX cell that uses a shared or
+array formula makes the typed parse fail with
+`QW_SPREADSHEET_ERR_UNSUPPORTED`. ODS time-typed cells are outside the
+supported typed subset.
 
 ## Requirements
 
