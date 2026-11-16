@@ -65,7 +65,17 @@ if(BUILD_TESTING)
         "QUIREWISE_XLS_MONTECARLO_FIXTURE=\"${CMAKE_CURRENT_SOURCE_DIR}/tests/data/MonteCarlo.xls\"")
     add_test(NAME quirewise_spreadsheet_xls COMMAND quirewise_spreadsheet_xls_parse)
 
-    add_executable(quirewise_spreadsheet_csv_write_test tests/csv_write_test.c)
+    add_executable(quirewise_spreadsheet_csv_sheet_select_test
+    tests/csv_sheet_select_test.c)
+target_compile_features(quirewise_spreadsheet_csv_sheet_select_test PRIVATE c_std_11)
+target_compile_definitions(quirewise_spreadsheet_csv_sheet_select_test PRIVATE
+    QUIREWISE_MULTI_SHEET_XLSX="${CMAKE_CURRENT_SOURCE_DIR}/tests/data/multi-sheet.xlsx")
+target_link_libraries(quirewise_spreadsheet_csv_sheet_select_test PRIVATE
+    quirewise_spreadsheet)
+add_test(NAME quirewise_spreadsheet_csv_sheet_select
+    COMMAND quirewise_spreadsheet_csv_sheet_select_test)
+
+add_executable(quirewise_spreadsheet_csv_write_test tests/csv_write_test.c)
     target_compile_features(quirewise_spreadsheet_csv_write_test PRIVATE c_std_11)
     target_link_libraries(quirewise_spreadsheet_csv_write_test PRIVATE Quirewise::Spreadsheet)
     add_test(NAME quirewise_spreadsheet_csv_write COMMAND quirewise_spreadsheet_csv_write_test)

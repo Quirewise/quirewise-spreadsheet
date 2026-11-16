@@ -113,10 +113,10 @@ QwSpreadsheetStatus qw_spreadsheet_write_document(
     size_t index;
     size_t current_row = 0u;
     size_t current_column = 0u;
+    size_t selected = 0u;
     int row_open = 0;
     uint8_t delimiter;
 
-    (void)options;
     if (!document || !out_data || !out_size)
         return QW_SPREADSHEET_ERR_INVALID_ARGUMENT;
     *out_data = NULL;
@@ -126,7 +126,17 @@ QwSpreadsheetStatus qw_spreadsheet_write_document(
     else return QW_SPREADSHEET_ERR_UNSUPPORTED;
     if (!document->sheet_count) return QW_SPREADSHEET_ERR_FORMAT;
 
-    sheet = &document->sheets[0];
+    {
+        selected = options ? (size_t)options->sheet_index : 0u;
+        if (selected >= document->sheet_count) {
+            if (report)
+                snprintf(report->note, sizeof(report->note),
+                         "worksheet index %zu is outside the %zu sheet(s)",
+                         selected, document->sheet_count);
+            return QW_SPREADSHEET_ERR_INVALID_ARGUMENT;
+        }
+        sheet = &document->sheets[selected];
+    }
     memset(&out, 0, sizeof(out));
     ref_count = sheet->cell_count;
     if (ref_count) {
@@ -176,19 +186,10 @@ QwSpreadsheetStatus qw_spreadsheet_write_document(
         report->output_size = out.size;
         report->pages_written = 0u;
         (void)snprintf(report->note, sizeof(report->note),
-                       output_format == QW_FORMAT_CSV
-                           ? "first worksheet written as comma-separated text"
-                           : "first worksheet written as tab-separated text");
-        if (document->sheet_count > 1u) {
-            size_t used = strlen(report->note);
-            if (used < sizeof(report->note)) {
-                (void)snprintf(report->note + used,
-                               sizeof(report->note) - used,
-                               "; %zu further sheet(s) not representable in "
-                               "text and skipped",
-                               document->sheet_count - 1u);
-            }
-        }
+                       "worksheet %zu of %zu written as %s-separated text; "
+                       "other sheets are not representable and skipped",
+                       selected + 1u, document->sheet_count,
+                       output_format == QW_FORMAT_CSV ? "comma" : "tab");
     }
     return QW_SPREADSHEET_OK;
 
