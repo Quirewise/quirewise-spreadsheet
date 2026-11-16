@@ -13,6 +13,7 @@ enum {
     XLS_MAX_WORKBOOK_BYTES = 128u * 1024u * 1024u,
     XLS_PROBE_PREFIX_BYTES = 1024u * 1024u,
     XLS_MAX_HTML_BYTES = 64u * 1024u * 1024u,
+    XLS_MAX_SST_SEGMENTS = 4096u,
     XLS_MAX_SHARED_STRINGS = 1000000u,
     XLS_MAX_SHARED_STRING_BYTES = 64u * 1024u * 1024u,
     XLS_MAX_STRING_BYTES = 256u * 1024u,
@@ -308,27 +309,178 @@ static int xls_add_shared_string(XlsReader *reader, const uint8_t *data,
     return 1;
 }
 
-static int xls_parse_sst(XlsReader *reader, const uint8_t *data, size_t size)
+typedef struct XlsSstSegment {
+    const uint8_t *data;
+    size_t size;
+} XlsSstSegment;
+
+typedef struct XlsSstReader {
+    const XlsSstSegment *segments;
+    size_t segment_count;
+    size_t segment;
+    size_t offset;
+} XlsSstReader;
+
+static size_t xls_sst_remaining(const XlsSstReader *reader)
 {
-    uint32_t total_count;
+    if (!reader || reader->segment >= reader->segment_count) return 0u;
+    return reader->segments[reader->segment].size - reader->offset;
+}
+
+static int xls_sst_next_segment(XlsSstReader *reader)
+{
+    if (!reader || reader->segment + 1u >= reader->segment_count) return 0;
+    ++reader->segment;
+    reader->offset = 0u;
+    return 1;
+}
+
+static int xls_sst_skip(XlsSstReader *reader, size_t bytes)
+{
+    while (bytes) {
+        size_t available = xls_sst_remaining(reader);
+        if (!available) {
+            if (!xls_sst_next_segment(reader)) return 0;
+            continue;
+        }
+        if (bytes < available) {
+            reader->offset += bytes;
+            return 1;
+        }
+        reader->offset += available;
+        bytes -= available;
+    }
+    return 1;
+}
+
+static int xls_sst_read_chars(XlsSstReader *reader, size_t character_count,
+                              int high_byte, QwTextBuffer *output)
+{
+    size_t i;
+    for (i = 0u; i < character_count; ++i) {
+        uint32_t codepoint;
+        if (!xls_sst_remaining(reader)) {
+            uint8_t flags;
+            if (!xls_sst_next_segment(reader)) return 0;
+            /* A continued string starts with a fresh option byte. */
+            if (!xls_sst_remaining(reader)) return 0;
+            flags = reader->segments[reader->segment].data[reader->offset++];
+            high_byte = (flags & 0x01u) != 0u;
+        }
+        if (high_byte) {
+            uint16_t first;
+            if (xls_sst_remaining(reader) < 2u) return 0;
+            first = xls_u16(reader->segments[reader->segment].data +
+                            reader->offset);
+            reader->offset += 2u;
+            if (first >= 0xd800u && first <= 0xdbffu &&
+                i + 1u < character_count) {
+                uint16_t second;
+                if (!xls_sst_remaining(reader) &&
+                    !xls_sst_next_segment(reader))
+                    return 0;
+                if (xls_sst_remaining(reader) < 2u) return 0;
+                second = xls_u16(reader->segments[reader->segment].data +
+                                 reader->offset);
+                if (second >= 0xdc00u && second <= 0xdfffu) {
+                    reader->offset += 2u;
+                    codepoint = 0x10000u +
+                        (((uint32_t)first - 0xd800u) << 10) +
+                        ((uint32_t)second - 0xdc00u);
+                    ++i;
+                } else {
+                    codepoint = 0xfffdu;
+                }
+            } else if (first >= 0xdc00u && first <= 0xdfffu) {
+                codepoint = 0xfffdu;
+            } else {
+                codepoint = first;
+            }
+        } else {
+            if (!xls_sst_remaining(reader)) return 0;
+            codepoint = reader->segments[reader->segment].data[reader->offset++];
+        }
+        if (!xls_append_codepoint(output, codepoint)) return 0;
+    }
+    return 1;
+}
+
+static int xls_parse_sst_segments(XlsReader *reader,
+                                  const XlsSstSegment *segments,
+                                  size_t segment_count)
+{
+    XlsSstReader stream;
     uint32_t unique_count;
-    size_t offset = 8u;
     uint32_t i;
-    if (!reader || !data || size < 8u || reader->shared_strings)
+    size_t header_available;
+    if (!reader || !segments || !segment_count || reader->shared_strings)
         return 0;
-    total_count = xls_u32(data);
-    unique_count = xls_u32(data + 4u);
-    if (unique_count > XLS_MAX_SHARED_STRINGS || unique_count > total_count)
-        return 0;
-#if SIZE_MAX <= UINT32_MAX
-    if (unique_count > SIZE_MAX / sizeof(*reader->shared_strings)) return 0;
-#endif
+    header_available = segments[0].size;
+    if (header_available < 8u) return 0;
+    unique_count = xls_u32(segments[0].data + 4u);
+    if (unique_count > XLS_MAX_SHARED_STRINGS) return 0;
     reader->shared_strings = (XlsString *)calloc(
         unique_count ? unique_count : 1u, sizeof(*reader->shared_strings));
     if (!reader->shared_strings) return 0;
     reader->shared_string_count = 0u;
+    stream.segments = segments;
+    stream.segment_count = segment_count;
+    stream.segment = 0u;
+    stream.offset = 8u;
     for (i = 0u; i < unique_count; ++i) {
-        if (!xls_add_shared_string(reader, data, size, &offset)) return 0;
+        QwTextBuffer buffer;
+        size_t character_count;
+        size_t run_bytes = 0u;
+        size_t extension_bytes = 0u;
+        uint8_t flags;
+        int high_byte;
+        int rich;
+        int extended;
+        XlsString *slot;
+        if (xls_sst_remaining(&stream) < 3u) {
+            if (!xls_sst_next_segment(&stream) ||
+                xls_sst_remaining(&stream) < 3u)
+                return 0;
+        }
+        character_count = xls_u16(stream.segments[stream.segment].data +
+                                  stream.offset);
+        flags = stream.segments[stream.segment].data[stream.offset + 2u];
+        stream.offset += 3u;
+        high_byte = (flags & 0x01u) != 0u;
+        rich = (flags & 0x08u) != 0u;
+        extended = (flags & 0x04u) != 0u;
+        if (rich) {
+            if (xls_sst_remaining(&stream) < 2u) return 0;
+            run_bytes = (size_t)xls_u16(
+                stream.segments[stream.segment].data + stream.offset) * 4u;
+            stream.offset += 2u;
+        }
+        if (extended) {
+            uint32_t extension_size;
+            if (xls_sst_remaining(&stream) < 4u) return 0;
+            extension_size = xls_u32(
+                stream.segments[stream.segment].data + stream.offset);
+            stream.offset += 4u;
+            extension_bytes = (size_t)extension_size;
+        }
+        memset(&buffer, 0, sizeof(buffer));
+        buffer.limit = XLS_MAX_STRING_BYTES + 1u;
+        if (!xls_sst_read_chars(&stream, character_count, high_byte,
+                                &buffer) ||
+            !xls_sst_skip(&stream, run_bytes) ||
+            !xls_sst_skip(&stream, extension_bytes)) {
+            free(buffer.data);
+            return 0;
+        }
+        if (buffer.size > XLS_MAX_SHARED_STRING_BYTES -
+                              reader->shared_string_bytes) {
+            free(buffer.data);
+            return 0;
+        }
+        slot = &reader->shared_strings[reader->shared_string_count++];
+        slot->data = buffer.data;
+        slot->size = buffer.size;
+        reader->shared_string_bytes += buffer.size;
     }
     return 1;
 }
@@ -475,16 +627,13 @@ static int xls_parse_globals(XlsReader *reader, const uint8_t *workbook,
             if (!xls_add_sheet(reader, sheets, &sheet_count, payload,
                                payload_size)) return 0;
         } else if (type == XLS_RECORD_SST) {
-            QwTextBuffer joined_sst;
-            memset(&joined_sst, 0, sizeof(joined_sst));
-            joined_sst.limit = (size_t)XLS_MAX_WORKBOOK_BYTES + 1u;
-            if (!qw_text_buffer_append(&joined_sst, (const char *)payload,
-                                       payload_size)) {
-                free(joined_sst.data);
-                return 0;
-            }
+            XlsSstSegment segments[XLS_MAX_SST_SEGMENTS];
+            size_t segment_count = 1u;
+            segments[0].data = payload;
+            segments[0].size = payload_size;
             offset = next;
-            while (offset < workbook_size) {
+            while (offset < workbook_size &&
+                   segment_count < XLS_MAX_SST_SEGMENTS) {
                 uint16_t continuation_type;
                 const uint8_t *continuation_payload;
                 size_t continuation_size;
@@ -495,20 +644,13 @@ static int xls_parse_globals(XlsReader *reader, const uint8_t *workbook,
                                      &continuation_size,
                                      &continuation_next) ||
                     continuation_type != XLS_RECORD_CONTINUE) break;
-                if (!continuation_size || !qw_text_buffer_append(
-                        &joined_sst, (const char *)continuation_payload,
-                        continuation_size)) {
-                    free(joined_sst.data);
-                    return 0;
-                }
+                segments[segment_count].data = continuation_payload;
+                segments[segment_count].size = continuation_size;
+                ++segment_count;
                 offset = continuation_next;
             }
-            if (!xls_parse_sst(reader, (const uint8_t *)joined_sst.data,
-                               joined_sst.size)) {
-                free(joined_sst.data);
+            if (!xls_parse_sst_segments(reader, segments, segment_count))
                 return 0;
-            }
-            free(joined_sst.data);
             continue;
         } else if (type == XLS_RECORD_EOF) {
             saw_eof = 1;

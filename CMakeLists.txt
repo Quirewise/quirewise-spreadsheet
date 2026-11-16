@@ -65,7 +65,17 @@ if(BUILD_TESTING)
         "QUIREWISE_XLS_MONTECARLO_FIXTURE=\"${CMAKE_CURRENT_SOURCE_DIR}/tests/data/MonteCarlo.xls\"")
     add_test(NAME quirewise_spreadsheet_xls COMMAND quirewise_spreadsheet_xls_parse)
 
-    add_executable(quirewise_spreadsheet_csv_sheet_select_test
+    add_executable(quirewise_spreadsheet_xls_sst_continue_test
+    tests/xls_sst_continue_test.c)
+target_compile_features(quirewise_spreadsheet_xls_sst_continue_test PRIVATE c_std_11)
+target_compile_definitions(quirewise_spreadsheet_xls_sst_continue_test PRIVATE
+    QUIREWISE_LARGE_SST_XLS="${CMAKE_CURRENT_SOURCE_DIR}/tests/data/large-sst.xls")
+target_link_libraries(quirewise_spreadsheet_xls_sst_continue_test PRIVATE
+    quirewise_spreadsheet)
+add_test(NAME quirewise_spreadsheet_xls_sst_continue
+    COMMAND quirewise_spreadsheet_xls_sst_continue_test)
+
+add_executable(quirewise_spreadsheet_csv_sheet_select_test
     tests/csv_sheet_select_test.c)
 target_compile_features(quirewise_spreadsheet_csv_sheet_select_test PRIVATE c_std_11)
 target_compile_definitions(quirewise_spreadsheet_csv_sheet_select_test PRIVATE
