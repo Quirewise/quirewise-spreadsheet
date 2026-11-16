@@ -101,11 +101,11 @@ int main(void)
         size_t unsupported_size = 7u;
 
         memset(&unsupported_report, 0, sizeof(unsupported_report));
-        if (qw_spreadsheet_write_document(document, QW_FORMAT_XLSX, NULL,
+        if (qw_spreadsheet_write_document(document, QW_FORMAT_PDF, NULL,
                                           &unsupported, &unsupported_size,
                                           &unsupported_report) !=
             QW_SPREADSHEET_ERR_UNSUPPORTED)
-            fail("XLSX target was accepted");
+            fail("PDF target was accepted");
         if (unsupported || unsupported_size)
             fail("unsupported target produced output");
     }
