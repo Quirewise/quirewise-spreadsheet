@@ -590,7 +590,110 @@ static int xlsx_append_cell_value(XlsxReader *reader, QwXmlNode *cell)
     return xlsx_append_xml_text(reader, qw_xml_down(value), 0u);
 }
 
-static int xlsx_render_worksheet(XlsxReader *reader, QwXmlNode *xml)
+
+typedef struct XlsxMergeRange {
+    size_t row1;
+    size_t column1;
+    size_t row2;
+    size_t column2;
+} XlsxMergeRange;
+
+static int xlsx_parse_merge_range(const char *reference, XlsxMergeRange *range,
+                                  size_t *out_count)
+{
+    const char *colon;
+    char left[24];
+    char right[24];
+    size_t left_size;
+    size_t right_size;
+    size_t row1;
+    size_t column1;
+    size_t row2;
+    size_t column2;
+    if (!reference || !range || !out_count) return 0;
+    colon = strchr(reference, ':');
+    if (!colon) return 0;
+    left_size = (size_t)(colon - reference);
+    right_size = strlen(colon + 1);
+    if (left_size == 0u || left_size >= sizeof(left) ||
+        right_size == 0u || right_size >= sizeof(right))
+        return 0;
+    memcpy(left, reference, left_size);
+    left[left_size] = '\0';
+    memcpy(right, colon + 1, right_size);
+    right[right_size] = '\0';
+    if (!xlsx_parse_cell_reference(left, &row1, &column1) ||
+        !xlsx_parse_cell_reference(right, &row2, &column2))
+        return 0;
+    if (row2 < row1 || column2 < column1) return 0;
+    range->row1 = row1;
+    range->column1 = column1;
+    range->row2 = row2;
+    range->column2 = column2;
+    *out_count = (row2 - row1 + 1u) * (column2 - column1 + 1u);
+    return 1;
+}
+
+static const XlsxMergeRange *xlsx_find_merge(const XlsxMergeRange *ranges,
+                                             size_t count, size_t row,
+                                             size_t column)
+{
+    size_t i;
+    for (i = 0u; i < count; ++i) {
+        if (row >= ranges[i].row1 && row <= ranges[i].row2 &&
+            column >= ranges[i].column1 && column <= ranges[i].column2)
+            return &ranges[i];
+    }
+    return NULL;
+}
+
+static int xlsx_collect_merges(XlsxReader *reader, QwXmlNode *root,
+                               XlsxMergeRange **out_ranges,
+                               size_t *out_count)
+{
+    QwXmlNode *merges;
+    QwXmlNode *node;
+    XlsxMergeRange *ranges;
+    size_t count = 0u;
+    size_t capacity = 16u;
+    *out_ranges = NULL;
+    *out_count = 0u;
+    merges = xlsx_find_descendant(reader, root, "mergeCells", 0u);
+    if (!merges) return 1;
+    ranges = (XlsxMergeRange *)malloc(capacity * sizeof(*ranges));
+    if (!ranges) return 0;
+    for (node = qw_xml_down(merges); node; node = qw_xml_next(node)) {
+        const char *reference;
+        XlsxMergeRange range;
+        size_t cells;
+        if (!xlsx_is_tag(node, "mergeCell")) continue;
+        reference = qw_xml_att(node, "ref");
+        if (!reference || !xlsx_parse_merge_range(reference, &range, &cells))
+            continue;
+        if (count == capacity) {
+            size_t grown_capacity = capacity * 2u;
+            XlsxMergeRange *grown;
+            if (grown_capacity > 4096u) grown_capacity = 4096u;
+            if (grown_capacity <= capacity) break;
+            grown = (XlsxMergeRange *)realloc(
+                ranges, grown_capacity * sizeof(*grown));
+            if (!grown) {
+                free(ranges);
+                return 0;
+            }
+            ranges = grown;
+            capacity = grown_capacity;
+        }
+        ranges[count++] = range;
+    }
+    *out_ranges = ranges;
+    *out_count = count;
+    return 1;
+}
+
+static int xlsx_render_worksheet_impl(XlsxReader *reader, QwXmlNode *xml,
+                                      const XlsxMergeRange *merges,
+                                      size_t merge_count)
 {
     QwXmlNode *sheet_data;
     QwXmlNode *row;
@@ -641,15 +744,39 @@ static int xlsx_render_worksheet(XlsxReader *reader, QwXmlNode *xml)
                 cell_column = column - 1u;
             if (reader->capture_html) {
                 for (blank = previous_column + 1u; blank < column; ++blank) {
+                    if (xlsx_find_merge(merges, merge_count, row_index,
+                                        blank - 1u))
+                        continue;
                     if (!xlsx_html_literal(reader, "<td></td>")) return 0;
                 }
             }
             if (reader->workbook && !xlsx_read_cell_model(
                     reader, cell, cell_row, cell_column)) return 0;
-            if (reader->capture_html &&
-                (!xlsx_html_literal(reader, "<td>") ||
-                 !xlsx_append_cell_value(reader, cell) ||
-                 !xlsx_html_literal(reader, "</td>"))) return 0;
+            if (reader->capture_html) {
+                const XlsxMergeRange *merge = xlsx_find_merge(
+                    merges, merge_count, cell_row,
+                    reference ? cell_column : column - 1u);
+                if (merge && !(merge->row1 == cell_row &&
+                               merge->column1 == cell_column)) {
+                    previous_column = column;
+                    continue;
+                }
+                if (!xlsx_html_literal(reader, "<td")) return 0;
+                if (merge) {
+                    char span[64];
+                    size_t rowspan = merge->row2 - merge->row1 + 1u;
+                    size_t colspan = merge->column2 - merge->column1 + 1u;
+                    int length = snprintf(span, sizeof(span),
+                                          " colspan=\"%lu\" rowspan=\"%lu\"",
+                                          (unsigned long)colspan,
+                                          (unsigned long)rowspan);
+                    if (length <= 0 || (size_t)length >= sizeof(span) ||
+                        !xlsx_html_literal(reader, span)) return 0;
+                }
+                if (!xlsx_html_literal(reader, ">") ||
+                    !xlsx_append_cell_value(reader, cell) ||
+                    !xlsx_html_literal(reader, "</td>")) return 0;
+            }
             previous_column = column;
         }
         if (!xlsx_html_literal(reader, "</tr>")) return 0;
@@ -657,6 +784,31 @@ static int xlsx_render_worksheet(XlsxReader *reader, QwXmlNode *xml)
         fallback_row = row_index + 1u;
     }
     return xlsx_html_literal(reader, "</tbody></table>");
+}
+
+static int xlsx_render_worksheet(XlsxReader *reader, QwXmlNode *xml)
+{
+    XlsxMergeRange *merges = NULL;
+    size_t merge_count = 0u;
+    int rc;
+    if (!xlsx_collect_merges(reader, qw_xml_root(xml), &merges,
+                             &merge_count))
+        return 0;
+    rc = xlsx_render_worksheet_impl(reader, xml, merges, merge_count);
+    if (rc && reader->workbook && merge_count > 0u) {
+        size_t i;
+        for (i = 0u; i < merge_count; ++i) {
+            if (!qw_spreadsheet_document_add_merge(
+                    reader->workbook, reader->current_sheet_index,
+                    merges[i].row1, merges[i].column1, merges[i].row2,
+                    merges[i].column2)) {
+                rc = 0;
+                break;
+            }
+        }
+    }
+    free(merges);
+    return rc;
 }
 
 static void xlsx_free_shared_strings(XlsxReader *reader)

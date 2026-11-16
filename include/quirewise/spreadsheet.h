@@ -73,6 +73,12 @@ QwSpreadsheetStatus qw_spreadsheet_cell_at(const QwSpreadsheetSheet *sheet,
                                            size_t index,
                                            QwSpreadsheetCellView *out_cell);
 
+/* Merged cell rectangles (row/column are zero-based, inclusive). */
+size_t qw_spreadsheet_sheet_merge_count(const QwSpreadsheetSheet *sheet);
+QwSpreadsheetStatus qw_spreadsheet_sheet_merge_at(
+    const QwSpreadsheetSheet *sheet, size_t index, size_t *out_row1,
+    size_t *out_column1, size_t *out_row2, size_t *out_column2);
+
 /*
  * Write the first worksheet as CSV (QW_FORMAT_CSV) or TSV (QW_FORMAT_TSV).
  * Fields are quoted when they contain the delimiter, a quote or a line break.

@@ -1,5 +1,7 @@
 #include "spreadsheet_document.h"
 
+#include <quirewise/spreadsheet.h>
+
 #include <stdlib.h>
 #include <string.h>
 
@@ -155,6 +157,35 @@ int qw_spreadsheet_document_add_cell(QwSpreadsheetDocument *document,
     return 1;
 }
 
+int qw_spreadsheet_document_add_merge(QwSpreadsheetDocument *document,
+                                      size_t sheet_index, size_t row1,
+                                      size_t column1, size_t row2,
+                                      size_t column2)
+{
+    QwSpreadsheetSheet *sheet;
+    QwSpreadsheetMerge *grown;
+    size_t capacity;
+    if (!document || sheet_index >= document->sheet_count) return 0;
+    if (row2 < row1 || column2 < column1) return 0;
+    sheet = &document->sheets[sheet_index];
+    if (sheet->merge_count == sheet->merge_capacity) {
+        capacity = sheet->merge_capacity ? sheet->merge_capacity * 2u : 8u;
+        if (capacity > 4096u) capacity = 4096u;
+        if (capacity <= sheet->merge_capacity) return 0;
+        grown = (QwSpreadsheetMerge *)realloc(
+            sheet->merges, capacity * sizeof(*grown));
+        if (!grown) return 0;
+        sheet->merges = grown;
+        sheet->merge_capacity = capacity;
+    }
+    sheet->merges[sheet->merge_count].row1 = row1;
+    sheet->merges[sheet->merge_count].column1 = column1;
+    sheet->merges[sheet->merge_count].row2 = row2;
+    sheet->merges[sheet->merge_count].column2 = column2;
+    ++sheet->merge_count;
+    return 1;
+}
+
 int qw_spreadsheet_document_validate(const QwSpreadsheetDocument *document)
 {
     size_t i;
@@ -200,8 +231,29 @@ void qw_spreadsheet_document_dispose(QwSpreadsheetDocument *document)
             free(sheet->cells[j].formula_utf8);
         }
         free(sheet->cells);
+        free(sheet->merges);
         free(sheet->name);
     }
     free(document->sheets);
     memset(document, 0, sizeof(*document));
+}
+
+
+size_t qw_spreadsheet_sheet_merge_count(const QwSpreadsheetSheet *sheet)
+{
+    return sheet ? sheet->merge_count : 0u;
+}
+
+QwSpreadsheetStatus qw_spreadsheet_sheet_merge_at(
+    const QwSpreadsheetSheet *sheet, size_t index, size_t *out_row1,
+    size_t *out_column1, size_t *out_row2, size_t *out_column2)
+{
+    if (!sheet || !out_row1 || !out_column1 || !out_row2 || !out_column2 ||
+        index >= sheet->merge_count)
+        return QW_SPREADSHEET_ERR_INVALID_ARGUMENT;
+    *out_row1 = sheet->merges[index].row1;
+    *out_column1 = sheet->merges[index].column1;
+    *out_row2 = sheet->merges[index].row2;
+    *out_column2 = sheet->merges[index].column2;
+    return QW_SPREADSHEET_OK;
 }
