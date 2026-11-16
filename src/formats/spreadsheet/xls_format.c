@@ -39,6 +39,7 @@ enum {
     XLS_RECORD_STRING = 0x0207u,
     XLS_RECORD_RK = 0x027eu,
     XLS_RECORD_MULRK = 0x00bdu,
+    XLS_RECORD_MERGEDCELLS = 0x00e5u,
     XLS_WORKBOOK_SUBSTREAM = 0x0005u,
     XLS_WORKSHEET_SUBSTREAM = 0x0010u
 };
@@ -707,6 +708,31 @@ static int xls_parse_sheet_record(XlsReader *reader, uint16_t type,
             if (!xls_append_numeric(reader, row,
                                     (uint32_t)first_column + (uint32_t)i,
                                     xls_decode_rk(rk))) return 0;
+        }
+        return 1;
+    }
+    case XLS_RECORD_MERGEDCELLS: {
+        uint16_t count;
+        size_t i;
+        if (size < 2u) return 0;
+        count = xls_u16(payload);
+        if (count == 0u || count > 4096u ||
+            size < 2u + (size_t)count * 8u)
+            return 0;
+        for (i = 0u; i < count; ++i) {
+            uint32_t row1 = xls_u16(payload + 2u + i * 8u);
+            uint32_t row2 = xls_u16(payload + 4u + i * 8u);
+            uint32_t column1 = xls_u16(payload + 6u + i * 8u) & 0x00ffu;
+            uint32_t column2 = xls_u16(payload + 8u + i * 8u) & 0x00ffu;
+            if (row1 >= XLS_MAX_ROWS || row2 >= XLS_MAX_ROWS ||
+                column1 >= XLS_MAX_COLUMNS || column2 >= XLS_MAX_COLUMNS ||
+                row2 < row1 || column2 < column1)
+                return 0;
+            if (reader->spreadsheet &&
+                !qw_spreadsheet_document_add_merge(
+                    reader->spreadsheet, reader->spreadsheet_sheet_index,
+                    row1, column1, row2, column2))
+                return 0;
         }
         return 1;
     }
