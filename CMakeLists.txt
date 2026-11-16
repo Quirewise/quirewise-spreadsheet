@@ -65,7 +65,18 @@ if(BUILD_TESTING)
         "QUIREWISE_XLS_MONTECARLO_FIXTURE=\"${CMAKE_CURRENT_SOURCE_DIR}/tests/data/MonteCarlo.xls\"")
     add_test(NAME quirewise_spreadsheet_xls COMMAND quirewise_spreadsheet_xls_parse)
 
-    add_executable(quirewise_spreadsheet_xlsx_write_test
+    add_executable(quirewise_spreadsheet_ods_write_test
+    tests/ods_write_test.c)
+target_compile_features(quirewise_spreadsheet_ods_write_test PRIVATE c_std_11)
+target_compile_definitions(quirewise_spreadsheet_ods_write_test PRIVATE
+    QUIREWISE_ODS_WRITE_SRC="${CMAKE_CURRENT_SOURCE_DIR}/tests/data/multi-sheet.xlsx"
+    QUIREWISE_MERGED_XLSX="${CMAKE_CURRENT_SOURCE_DIR}/tests/data/merged.xlsx")
+target_link_libraries(quirewise_spreadsheet_ods_write_test PRIVATE
+    quirewise_spreadsheet)
+add_test(NAME quirewise_spreadsheet_ods_write
+    COMMAND quirewise_spreadsheet_ods_write_test)
+
+add_executable(quirewise_spreadsheet_xlsx_write_test
     tests/xlsx_write_test.c)
 target_compile_features(quirewise_spreadsheet_xlsx_write_test PRIVATE c_std_11)
 target_compile_definitions(quirewise_spreadsheet_xlsx_write_test PRIVATE

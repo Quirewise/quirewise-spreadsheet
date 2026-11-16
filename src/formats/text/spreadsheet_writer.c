@@ -438,6 +438,280 @@ static QwSpreadsheetStatus xlsx_write_package(const QwSpreadsheetDocument *docum
     return QW_SPREADSHEET_OK;
 }
 
+
+static int ods_cell_covered(const QwSpreadsheetSheet *sheet, size_t row,
+                            size_t column, size_t *out_top_row,
+                            size_t *out_top_column, int *out_top_left)
+{
+    size_t index;
+    *out_top_row = row;
+    *out_top_column = column;
+    *out_top_left = 0;
+    for (index = 0u; index < sheet->merge_count; ++index) {
+        const QwSpreadsheetMerge *merge = &sheet->merges[index];
+        if (row < merge->row1 || row > merge->row2 || column < merge->column1 ||
+            column > merge->column2)
+            continue;
+        *out_top_row = merge->row1;
+        *out_top_column = merge->column1;
+        *out_top_left = row == merge->row1 && column == merge->column1;
+        return 1;
+    }
+    return 0;
+}
+
+static int ods_append_cell(SpreadsheetOutput *out,
+                           const QwSpreadsheetSheet *sheet,
+                           const QwSpreadsheetCell *cell, size_t row,
+                           size_t column)
+{
+    size_t top_row;
+    size_t top_column;
+    int top_left;
+    int covered = ods_cell_covered(sheet, row, column, &top_row,
+                                   &top_column, &top_left);
+    size_t merge_index;
+    if (covered && !top_left) {
+        /* The spanning cell already advances the column count on its top row. */
+        if (row == top_row) return 1;
+        (void)top_column;
+        return output_text(out, "<table:covered-table-cell/>");
+    }
+    if (covered) {
+        for (merge_index = 0u; merge_index < sheet->merge_count;
+             ++merge_index) {
+            const QwSpreadsheetMerge *merge = &sheet->merges[merge_index];
+            if (merge->row1 == row && merge->column1 == column) {
+                char span[128];
+                int length = snprintf(
+                    span, sizeof(span),
+                    "<table:table-cell table:number-columns-spanned=\"%zu\" "
+                    "table:number-rows-spanned=\"%zu\"",
+                    merge->column2 - merge->column1 + 1u,
+                    merge->row2 - merge->row1 + 1u);
+                if (length <= 0 || (size_t)length >= sizeof(span) ||
+                    !output_text(out, span))
+                    return 0;
+                break;
+            }
+        }
+    } else {
+        if (!output_text(out, "<table:table-cell")) return 0;
+    }
+    if (!cell || cell->value_kind == QW_SPREADSHEET_VALUE_EMPTY) {
+        return output_text(out, covered ? "/>" : "/>");
+    }
+    if (cell->value_kind == QW_SPREADSHEET_VALUE_NUMBER) {
+        if (!output_text(out, " office:value-type=\"float\" office:value=\"") ||
+            !output_escape_xml(out, cell->value_utf8, cell->value_size) ||
+            !output_text(out, "\"><text:p>") ||
+            !output_escape_xml(out, cell->value_utf8, cell->value_size) ||
+            !output_text(out, "</text:p></table:table-cell>"))
+            return 0;
+        return 1;
+    }
+    if (cell->value_kind == QW_SPREADSHEET_VALUE_BOOLEAN) {
+        int truth = cell->value_size && cell->value_utf8[0] == '1';
+        return output_text(out, " office:value-type=\"boolean\" "
+                                "office:boolean-value=\"") &&
+               output_text(out, truth ? "true" : "false") &&
+               output_text(out, "\"><text:p>") &&
+               output_text(out, truth ? "true" : "false") &&
+               output_text(out, "</text:p></table:table-cell>");
+    }
+    if (!output_text(out, " office:value-type=\"string\"><text:p>") ||
+        !output_escape_xml(out, cell->value_utf8, cell->value_size) ||
+        !output_text(out, "</text:p></table:table-cell>"))
+        return 0;
+    return 1;
+}
+
+static int ods_build_sheet(const QwSpreadsheetSheet *sheet,
+                           SpreadsheetOutput *out)
+{
+    CellRef *refs = NULL;
+    size_t ref_count = sheet->cell_count;
+    size_t max_row = 0u;
+    size_t max_column = 0u;
+    size_t index;
+    int have_cells = 0;
+    const char *name = qw_spreadsheet_sheet_name(sheet, NULL);
+    if (name && name[0]) {
+        if (!output_text(out, "<table:table table:name=\"") ||
+            !output_escape_xml(out, (const uint8_t *)name, strlen(name)) ||
+            !output_text(out, "\">"))
+            return 0;
+    } else if (!output_text(out, "<table:table>")) {
+        return 0;
+    }
+    if (ref_count) {
+        refs = (CellRef *)malloc(ref_count * sizeof(*refs));
+        if (!refs) return 0;
+        for (index = 0u; index < ref_count; ++index) {
+            refs[index].row = sheet->cells[index].row;
+            refs[index].column = sheet->cells[index].column;
+            refs[index].index = index;
+        }
+        qsort(refs, ref_count, sizeof(*refs), cell_ref_compare);
+        for (index = 0u; index < ref_count; ++index) {
+            if (sheet->cells[refs[index].index].value_kind ==
+                QW_SPREADSHEET_VALUE_EMPTY)
+                continue;
+            if (!have_cells || refs[index].row > max_row)
+                max_row = refs[index].row;
+            if (!have_cells || refs[index].column > max_column)
+                max_column = refs[index].column;
+            have_cells = 1;
+        }
+    }
+    for (index = 0u; index < sheet->merge_count; ++index) {
+        if (!have_cells || sheet->merges[index].row2 > max_row)
+            max_row = sheet->merges[index].row2;
+        if (!have_cells || sheet->merges[index].column2 > max_column)
+            max_column = sheet->merges[index].column2;
+        have_cells = 1;
+    }
+    if (!have_cells) {
+        free(refs);
+        return output_text(out, "</table:table>");
+    }
+    for (index = 0u; index <= max_row; ++index) {
+        size_t column;
+        if (!output_text(out, "<table:table-row>")) {
+            free(refs);
+            return 0;
+        }
+        for (column = 0u; column <= max_column; ++column) {
+            const QwSpreadsheetCell *cell = NULL;
+            size_t ref_index;
+            for (ref_index = 0u; ref_index < ref_count; ++ref_index) {
+                if (refs[ref_index].row == index &&
+                    refs[ref_index].column == column) {
+                    cell = &sheet->cells[refs[ref_index].index];
+                    break;
+                }
+            }
+            if (!ods_append_cell(out, sheet, cell, index, column)) {
+                free(refs);
+                return 0;
+            }
+        }
+        if (!output_text(out, "</table:table-row>")) {
+            free(refs);
+            return 0;
+        }
+    }
+    free(refs);
+    return output_text(out, "</table:table>");
+}
+
+static QwSpreadsheetStatus ods_write_package(const QwSpreadsheetDocument *document,
+                                             uint8_t **out_data,
+                                             size_t *out_size,
+                                             QwConvertReport *report)
+{
+    static const char mimetype[] =
+        "application/vnd.oasis.opendocument.spreadsheet";
+    SpreadsheetOutput content;
+    SpreadsheetOutput manifest;
+    SpreadsheetOutput styles;
+    SpreadsheetOutput meta;
+    QwZipWriter writer;
+    size_t index;
+    int ok;
+    memset(&content, 0, sizeof(content));
+    memset(&manifest, 0, sizeof(manifest));
+    memset(&styles, 0, sizeof(styles));
+    memset(&meta, 0, sizeof(meta));
+    ok = output_text(&content,
+            "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n"
+            "<office:document-content xmlns:office=\"urn:oasis:names:tc:"
+            "opendocument:xmlns:office:1.0\" xmlns:table=\"urn:oasis:names:"
+            "tc:opendocument:xmlns:table:1.0\" xmlns:text=\"urn:oasis:names:"
+            "tc:opendocument:xmlns:text:1.0\" office:version=\"1.2\">"
+            "<office:body><office:spreadsheet>") &&
+        output_text(&manifest,
+            "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n"
+            "<manifest:manifest xmlns:manifest=\"urn:oasis:names:tc:"
+            "opendocument:xmlns:manifest:1.0\" manifest:version=\"1.2\">"
+            "<manifest:file-entry manifest:full-path=\"/\" manifest:media-type=\""
+            "application/vnd.oasis.opendocument.spreadsheet\"/>"
+            "<manifest:file-entry manifest:full-path=\"content.xml\" "
+            "manifest:media-type=\"text/xml\"/>"
+            "<manifest:file-entry manifest:full-path=\"styles.xml\" "
+            "manifest:media-type=\"text/xml\"/>"
+            "<manifest:file-entry manifest:full-path=\"meta.xml\" "
+            "manifest:media-type=\"text/xml\"/></manifest:manifest>") &&
+        output_text(&styles,
+            "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n"
+            "<office:document-styles xmlns:office=\"urn:oasis:names:tc:"
+            "opendocument:xmlns:office:1.0\" office:version=\"1.2\"/>") &&
+        output_text(&meta,
+            "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n"
+            "<office:document-meta xmlns:office=\"urn:oasis:names:tc:"
+            "opendocument:xmlns:office:1.0\" office:version=\"1.2\"/>");
+    if (ok) {
+        for (index = 0u; index < document->sheet_count; ++index) {
+            if (!ods_build_sheet(&document->sheets[index], &content)) {
+                ok = 0;
+                break;
+            }
+        }
+    }
+    ok = ok && output_text(&content,
+             "</office:spreadsheet></office:body></office:document-content>");
+    if (!ok || !qw_zip_writer_init_heap(&writer, 0u, 0u)) {
+        free(content.data);
+        free(manifest.data);
+        free(styles.data);
+        free(meta.data);
+        return QW_SPREADSHEET_ERR_OUT_OF_MEMORY;
+    }
+    if (!qw_zip_writer_add_mem(&writer, "mimetype", mimetype,
+                               strlen(mimetype), QW_ZIP_NO_COMPRESSION) ||
+        !qw_zip_writer_add_mem(&writer, "META-INF/manifest.xml", manifest.data,
+                               manifest.size, QW_ZIP_NO_COMPRESSION) ||
+        !qw_zip_writer_add_mem(&writer, "content.xml", content.data,
+                               content.size, QW_ZIP_NO_COMPRESSION) ||
+        !qw_zip_writer_add_mem(&writer, "styles.xml", styles.data,
+                               styles.size, QW_ZIP_NO_COMPRESSION) ||
+        !qw_zip_writer_add_mem(&writer, "meta.xml", meta.data, meta.size,
+                               QW_ZIP_NO_COMPRESSION)) {
+        qw_zip_writer_end(&writer);
+        free(content.data);
+        free(manifest.data);
+        free(styles.data);
+        free(meta.data);
+        return QW_SPREADSHEET_ERR_OUT_OF_MEMORY;
+    }
+    free(content.data);
+    free(manifest.data);
+    free(styles.data);
+    free(meta.data);
+    {
+        void *archive = NULL;
+        size_t archive_size = 0u;
+        if (!qw_zip_writer_finalize_heap_archive(&writer, &archive,
+                                                 &archive_size) ||
+            !archive) {
+            qw_zip_writer_end(&writer);
+            return QW_SPREADSHEET_ERR_OUT_OF_MEMORY;
+        }
+        qw_zip_writer_end(&writer);
+        *out_data = (uint8_t *)archive;
+        *out_size = archive_size;
+    }
+    if (report) {
+        report->format = document->input_format;
+        report->output_format = QW_FORMAT_ODS;
+        report->output_size = *out_size;
+        snprintf(report->note, sizeof(report->note),
+                 "OpenDocument spreadsheet package with %zu worksheet(s), "
+                 "inline values and merged ranges", document->sheet_count);
+    }
+    return QW_SPREADSHEET_OK;
+}
+
 QwSpreadsheetStatus qw_spreadsheet_write_document(
     const QwSpreadsheetDocument *document, QwOutputFormat output_format,
     const QwConvertOptions *options, uint8_t **out_data, size_t *out_size,
@@ -460,6 +734,8 @@ QwSpreadsheetStatus qw_spreadsheet_write_document(
     *out_size = 0u;
     if (output_format == QW_FORMAT_XLSX)
         return xlsx_write_package(document, out_data, out_size, report);
+    if (output_format == QW_FORMAT_ODS)
+        return ods_write_package(document, out_data, out_size, report);
     if (output_format == QW_FORMAT_CSV) delimiter = (uint8_t)',';
     else if (output_format == QW_FORMAT_TSV) delimiter = (uint8_t)'\t';
     else return QW_SPREADSHEET_ERR_UNSUPPORTED;
