@@ -397,6 +397,19 @@ cleanup:
     return 1;
 }
 
+
+static size_t ods_span_value(const char *value)
+{
+    char *end = NULL;
+    unsigned long parsed;
+    if (!value || !value[0]) return 1u;
+    errno = 0;
+    parsed = strtoul(value, &end, 10);
+    if (errno || !end || *end || parsed == 0ul) return 1u;
+    if (parsed > 1000ul) parsed = 1000ul;
+    return (size_t)parsed;
+}
+
 static int ods_render_row(OdsReader *reader, QwXmlNode *row)
 {
     size_t row_repeat;
@@ -446,6 +459,31 @@ static int ods_render_row(OdsReader *reader, QwXmlNode *row)
                      !ods_html_literal(reader, "</td>"))) return 0;
                 if (!ods_read_cell_model(reader, cell, model_row,
                                          column_count)) return 0;
+                {
+                    size_t colspan = 1u;
+                    size_t rowspan = 1u;
+                    if (ods_is_tag(cell, "table-cell")) {
+                        colspan = ods_span_value(qw_xml_att(
+                            cell, "table:number-columns-spanned"));
+                        rowspan = ods_span_value(qw_xml_att(
+                            cell, "table:number-rows-spanned"));
+                    }
+                    if (reader->workbook && row_index == 0u &&
+                        cell_repeat == 1u &&
+                        (colspan > 1u || rowspan > 1u)) {
+                        if (column_count + colspan > ODS_MAX_COLUMNS ||
+                            model_row + rowspan > ODS_MAX_ROWS ||
+                            !qw_spreadsheet_document_add_merge(
+                                reader->workbook,
+                                reader->current_sheet_index, model_row,
+                                column_count, model_row + rowspan - 1u,
+                                column_count + colspan - 1u))
+                            return 0;
+                    }
+                    if (colspan > 1u &&
+                        column_count + colspan <= ODS_MAX_COLUMNS)
+                        column_count += colspan - 1u;
+                }
                 ++column_count;
                 ++reader->cell_count;
             }
