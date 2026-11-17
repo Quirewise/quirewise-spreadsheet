@@ -241,6 +241,16 @@ Typical causes:
 - ODS/OTS/FODS: a missing `content.xml` (`FORMAT`), an unsupported value type
   or a formula outside `of:=` (`UNSUPPORTED`).
 
+## 4.1 Write a workbook
+
+`qw_spreadsheet_write_document(document, format, options, &data, &size, &report)`
+writes XLSX (`QW_FORMAT_XLSX`) or ODS (`QW_FORMAT_ODS`) with every worksheet,
+cell value and merged range. `QW_FORMAT_CSV`/`QW_FORMAT_TSV` write one
+worksheet; pass `options->sheet_index` (zero-based; the CLI `--sheet N` is
+one-based) to choose it. Release the result with
+`qw_spreadsheet_buffer_free`. Other target formats return
+`QW_SPREADSHEET_ERR_UNSUPPORTED`.
+
 ## 5. Memory, lifetime and threading
 
 - Input buffers are borrowed for the parse call; free your file buffer
@@ -275,15 +285,19 @@ Format notes:
   consistency probe over the first 64 KiB. Fields above 1 MiB report a resource
   limit, as does a document above 1,000,000 cells.
 - XLSX: values come from shared strings, inline strings, boolean/error/date
-  markers and numeric text. Number formats, styles, merged cells, charts,
-  images and macros are ignored; sheet order comes from `workbook.xml`.
+  markers and numeric text. Merged ranges are exposed through
+  `qw_spreadsheet_sheet_merge_count`/`_at` and preserved by the writer; number
+  formats, styles, charts, images and macros are ignored; sheet order comes from
+  `workbook.xml`.
 - XLS: BIFF8 records only. Out-of-order worksheet cells are skipped, encrypted
   workbooks are rejected, and formulas are not retained; dates are number
   lexemes.
 - ODS: repeated rows and columns are expanded subject to the limits; covered
   cells are skipped; string, float, percentage, currency, boolean and date
   value types are mapped; time values are unsupported.
-- There is no writer, no formula evaluation and no style model in any format.
+- XLSX and ODS writers preserve values and merged ranges, not styles, charts,
+  images or recomputed formulas. Legacy XLS/XLT is read-only. Formulas are never
+  evaluated in any format.
 
 ## 7. Related packages
 

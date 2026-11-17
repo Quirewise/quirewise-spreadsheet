@@ -80,12 +80,14 @@ QwSpreadsheetStatus qw_spreadsheet_sheet_merge_at(
     size_t *out_column1, size_t *out_row2, size_t *out_column2);
 
 /*
- * Write the first worksheet as CSV (QW_FORMAT_CSV) or TSV (QW_FORMAT_TSV).
- * Fields are quoted when they contain the delimiter, a quote or a line break.
- * Text targets have no sheet concept, so further sheets are skipped and named
- * in the report note. Other output formats return
- * QW_SPREADSHEET_ERR_UNSUPPORTED. The result is malloc-owned and must be
- * released with qw_spreadsheet_buffer_free(); it is not NUL-terminated.
+ * Write XLSX (QW_FORMAT_XLSX) or ODS (QW_FORMAT_ODS) with all worksheets,
+ * values and merged ranges, or one worksheet as CSV (QW_FORMAT_CSV) or TSV
+ * (QW_FORMAT_TSV). Text targets have no sheet concept: options->sheet_index
+ * selects the worksheet (zero-based) and the report names any skipped sheets.
+ * CSV/TSV fields are quoted when they contain the delimiter, a quote or a line
+ * break. Other output formats return QW_SPREADSHEET_ERR_UNSUPPORTED. The
+ * result is malloc-owned and must be released with qw_spreadsheet_buffer_free();
+ * it is not NUL-terminated.
  */
 QwSpreadsheetStatus qw_spreadsheet_write_document(
     const QwSpreadsheetDocument *document, QwOutputFormat output_format,

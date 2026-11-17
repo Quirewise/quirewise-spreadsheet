@@ -1,6 +1,6 @@
 # quirewise-spreadsheet
 
-Read-only workbook parser for XLSX/XLSM/XLTX, XLS/XLT, ODS/OTS/FODS and
+Workbook parser and writer for XLSX/XLSM/XLTX, XLS/XLT, ODS/OTS/FODS and
 CSV/TSV, exposing sheets, cells, cell kinds and cached formula text.
 
 `Quirewise::Spreadsheet` is an independent, MIT-licensed C11 library. It is
@@ -25,17 +25,20 @@ application or any other Quirewise package.
 - Exposes one uniform model: ordered sheets, and per sheet the cells in strictly
   increasing `(row, column)` order, each with a kind, a UTF-8 value and optional
   cached formula text.
+- Writes XLSX and ODS packages with every worksheet, cell value and merged
+  range through `qw_spreadsheet_write_document`; CSV/TSV output selects the
+  first worksheet by default and honors `QwConvertOptions::sheet_index`.
 
 The format is selected by the caller through `QwSpreadsheetFormat`; there is no
 content probing function.
 
-**Deliberate boundaries.** This is primarily a reader: XLSX, XLS and ODS are
-never written. CSV and TSV output exists through
-`qw_spreadsheet_write_document`, but it writes the **first worksheet only** -
-text targets have no sheet concept - and quotes fields containing the
-delimiter, a quote or a line break. Formulas are never evaluated - only the
-cached result stored in the file is returned. Styles, number formats, merged
-regions, charts, images, macros and template behavior are not modeled.
+**Deliberate boundaries.** XLSX and ODS are read and written; legacy XLS/XLT is
+read-only but can be converted to XLSX/ODS. CSV/TSV output writes the selected
+worksheet only - text targets have no sheet concept - and quotes fields
+containing the delimiter, a quote or a line break. Formulas are never evaluated:
+only the cached result stored in the file is returned, and writer output keeps
+values plus merged ranges, not formula results. Styles, number formats, charts,
+images, macros and template behavior are not modeled.
 Encrypted XLS workbooks are unsupported, and an XLSX cell that uses a shared or
 array formula makes the typed parse fail with
 `QW_SPREADSHEET_ERR_UNSUPPORTED`. ODS time-typed cells are outside the
@@ -116,6 +119,7 @@ int main(void)
 | Task | Functions |
 |---|---|
 | Parse | `qw_spreadsheet_parse` |
+| Write | `qw_spreadsheet_write_document`, `qw_spreadsheet_buffer_free` |
 | Document lifetime | `qw_spreadsheet_document_free` |
 | Document info | `qw_spreadsheet_document_format`, `qw_spreadsheet_sheet_count` |
 | Sheets | `qw_spreadsheet_sheet_at`, `qw_spreadsheet_sheet_name`, `qw_spreadsheet_cell_count` |
