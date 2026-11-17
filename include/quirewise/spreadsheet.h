@@ -60,21 +60,29 @@ typedef struct QwSpreadsheetCellView {
 QwSpreadsheetStatus qw_spreadsheet_parse(QwSpreadsheetFormat format,
                                          const void *data, size_t size,
                                          QwSpreadsheetDocument **out_document);
+/*! Release a document returned by qw_spreadsheet_parse(); NULL is accepted. */
 void qw_spreadsheet_document_free(QwSpreadsheetDocument *document);
+/*! Return the source format of a parsed workbook. */
 QwSpreadsheetFormat qw_spreadsheet_document_format(
     const QwSpreadsheetDocument *document);
+/*! Return the number of worksheets. */
 size_t qw_spreadsheet_sheet_count(const QwSpreadsheetDocument *document);
+/*! Return the worksheet at index, or NULL. */
 const QwSpreadsheetSheet *qw_spreadsheet_sheet_at(
     const QwSpreadsheetDocument *document, size_t index);
+/*! Return the sheet name and its byte length. */
 const char *qw_spreadsheet_sheet_name(const QwSpreadsheetSheet *sheet,
                                       size_t *out_size);
+/*! Return the number of populated cells in a sheet. */
 size_t qw_spreadsheet_cell_count(const QwSpreadsheetSheet *sheet);
+/*! Return one cell value by index. */
 QwSpreadsheetStatus qw_spreadsheet_cell_at(const QwSpreadsheetSheet *sheet,
                                            size_t index,
                                            QwSpreadsheetCellView *out_cell);
 
 /* Merged cell rectangles (row/column are zero-based, inclusive). */
 size_t qw_spreadsheet_sheet_merge_count(const QwSpreadsheetSheet *sheet);
+/*! Return one merged rectangle by index. */
 QwSpreadsheetStatus qw_spreadsheet_sheet_merge_at(
     const QwSpreadsheetSheet *sheet, size_t index, size_t *out_row1,
     size_t *out_column1, size_t *out_row2, size_t *out_column2);
